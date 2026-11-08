@@ -1,37 +1,46 @@
 import std/[os, strutils]
 import ../core/segment
 
-# TODO: move to toml file
 const
-  ## Battery Icons to display (array)
-  BATTERY_ICONS = @[" ", " ", " ", " ", " ", " "]
+  ## Default battery icons: charging, empty, low, half, 3qtr, full
+  BATTERY_ICONS* = @[" \u{f1e6}", "\u{f244} ", "\u{f243} ", "\u{f242} ", "\u{f241} ", "\u{f240} "]
 
-# get the current battery status and battery level of laptop
-proc getBatStatus*(s: Segment): string =
-  # Make sure we are running on a laptop with BAT0, change to BAT1 if needed
-  # TODO: redo this to check for BAT1 also, or maybe user defined in toml file
-  if not fileExists("/sys/class/power_supply/BAT0/capacity"):
-    return BATTERY_ICONS[1] & "N/A" #isEmpty
-  else:
-    # Read the first line of the these files
-
-    let sBatStats = readLines("/sys/class/power_supply/BAT0/status", 1)
-    let sCapacity = readLines("/sys/class/power_supply/BAT0/capacity", 1)
-
-    # Check if battery status is in charging mode
-    if sBatStats[0] == "Charging":
-      s.icon = BATTERY_ICONS[0] #isPlg
-    else:
-      case parseInt(sCapacity[0]):
-      of 10..35:
-        s.icon = BATTERY_ICONS[2] #isLow
-      of 36..59:
-        s.icon = BATTERY_ICONS[3] #isHalf
-      of 60..85:
-        s.icon = BATTERY_ICONS[4] #is3Qrt
-      of 86..100:
-        s.icon = BATTERY_ICONS[5] #isFull
+proc batteryHooks*(icons: seq[string], name = ""): Hooks =
+  ## icons: 6 entries (charging, empty, low, half, 3qtr, full). name: e.g. "BAT0"; empty = first battery found.
+  var batDir = ""
+  result.body = proc(s: Segment): string =
+    # Use the first battery found (BAT0, BAT1, ...); the directory is cached after the first scan
+    if batDir == "":
+      if name != "":
+        let path = "/sys/class/power_supply" / name
+        if fileExists(path / "capacity"): batDir = path
       else:
-        s.icon = BATTERY_ICONS[1] #isEmpty
-    # return the corresponding icon and battery level
-    return sCapacity[0] & "%"
+        for path in walkDirs("/sys/class/power_supply/BAT*"):
+          if fileExists(path / "capacity"):
+            batDir = path
+            break
+    let bat = batDir
+    if bat == "":
+      return icons[1] & "N/A" #isEmpty
+    else:
+      # Read the first line of the these files
+      let sBatStats = readLines(bat / "status", 1)
+      let sCapacity = readLines(bat / "capacity", 1)
+
+      # Check if battery status is in charging mode
+      if sBatStats[0] == "Charging":
+        s.icon = icons[0] #isPlg
+      else:
+        case parseInt(sCapacity[0]):
+        of 10..35:
+          s.icon = icons[2] #isLow
+        of 36..59:
+          s.icon = icons[3] #isHalf
+        of 60..85:
+          s.icon = icons[4] #is3Qrt
+        of 86..100:
+          s.icon = icons[5] #isFull
+        else:
+          s.icon = icons[1] #isEmpty
+      # return the corresponding icon and battery level
+      return sCapacity[0] & "%"

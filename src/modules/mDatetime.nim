@@ -1,22 +1,17 @@
-import times
+import std/times
 import ../core/segment
 
-# TODO: Move to toml file
-const
-  ## date formatting
-  DATE_FORMAT = "ddd d MMM "
-  ## time formatting
-  TIME_FORMAT = "HH:mm "
-  ## date and time formatting
-  DATETIME_FORMAT = "ddd d MMM HH:mm "
+proc validDateTimeFormat*(fmt: string): bool =
+  try: discard format(now(), fmt)
+  except CatchableError: return false
+  true
 
-# TODO: work out a way for the user to select what function to be used in toml file
-# get the date and time
-proc getDateTime*(s: Segment): string =
-  result = format(now(), DATETIME_FORMAT)
+proc formatHasSeconds*(fmt: string): bool =
+  ## True if an unquoted `s` pattern appears (quoted 'text' is literal in Nim's format).
+  var quoted = false
+  for c in fmt:
+    if c == '\'': quoted = not quoted
+    elif c == 's' and not quoted: return true
 
-proc getDate*(): string =
-  result = format(now(), DATE_FORMAT)
-
-proc getTime*(): string =
-  result =  format(now(), TIME_FORMAT)
+proc dateTimeHooks*(fmt: string): Hooks =
+  result.body = proc(s: Segment): string = format(now(), fmt)

@@ -1,4 +1,4 @@
-import std/[strutils, os, strformat]
+import std/[strutils]
 import ../core/[segment]
 
 const
@@ -6,33 +6,30 @@ const
   GIB_DIVISOR: float = 1024.0 * 1024.0
   MIB_DIVISOR: int = 1024
 
-proc getMemInfo(key: string): int =
-  for line in readFile(MEMINFO_PATH).splitLines():
-    let parts = line.split(":")
-    if parts.len == 2 and parts[0].strip() == key:
-      return parts[1].strip().split()[0].parseInt()
-  return 0
-
-proc getMemory*(s: Segment): string =
-  if not fileExists(MEMINFO_PATH):
-    return "Memory info not available"
-
-  let
-    iMemTotal = getMemInfo("MemTotal")
-    iMemFree = getMemInfo("MemFree")
-    #iMemAvailable = getMemInfo("MemAvailable")
-    iBuffers = getMemInfo("Buffers")
-    iCached = getMemInfo("Cached")
-    iShmem = getMemInfo("Shmem")
-    iSReclaimable = getMemInfo("SReclaimable")
-
-    # Htop method of calculating used memory
-    iUsedMem = iMemTotal - (iMemFree + iBuffers + iCached) + (iShmem - iSReclaimable)
-
-    # Standard method, free, btop pytop ect..
-    # iUsedMem = iMemTotal - iMemAvailable
-
-  if iUsedMem >= 1048576: # Check to see if used mem is 1GB or greater
-    result = fmt"{iUsedMem.float / GIB_DIVISOR:0.2f} GiB"
-  else:
-    result = fmt"{iUsedMem div MIB_DIVISOR} MiB"
+proc memoryHooks*(useAvailable: bool, decimals: int): Hooks =
+  ## useAvailable = false: htop's formula; true: MemTotal - MemAvailable.
+  result.body = proc(s: Segment): string =
+    var iMemTotal, iMemFree, iBuffers, iCached, iShmem, iSReclaimable, iAvailable: int
+    # One pass over /proc/meminfo, parsing every needed key
+    for line in lines(MEMINFO_PATH):
+      let c = line.find(':')
+      if c < 0: continue
+      let key = line[0 ..< c]
+      var target: ptr int
+      case key
+      of "MemTotal": target = addr iMemTotal
+      of "MemFree": target = addr iMemFree
+      of "Buffers": target = addr iBuffers
+      of "Cached": target = addr iCached
+      of "Shmem": target = addr iShmem
+      of "SReclaimable": target = addr iSReclaimable
+      of "MemAvailable": target = addr iAvailable
+      else: continue
+      target[] = line[c + 1 .. ^1].strip().split()[0].parseInt()
+    let iUsedMem =
+      if useAvailable: iMemTotal - iAvailable
+      else: iMemTotal - (iMemFree + iBuffers + iCached) + (iShmem - iSReclaimable)  # htop
+    if iUsedMem >= 1048576: # Check to see if used mem is 1GB or greater
+      result = formatFloat(iUsedMem.float / GIB_DIVISOR, ffDecimal, decimals) & " GiB"
+    else:
+      result = $(iUsedMem div MIB_DIVISOR) & " MiB"
