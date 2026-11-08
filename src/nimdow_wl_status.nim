@@ -119,6 +119,12 @@ proc reexec() =
   for fd in fds:
     if fd > 2: discard fcntl(fd, F_SETFD, FD_CLOEXEC)
   let argv = allocCStringArray(@[paramStr(0)] & commandLineParams())
+  # Exec the real path, not /proc/self/exe: the process name (comm) is taken from the
+  # exec'd path, and "exe" would break `pkill nimdow-wl-stat`. If the binary was
+  # replaced on disk (rebuild), readlink ends in " (deleted)": run the new one.
+  var path = getAppFilename()
+  if path.endsWith(" (deleted)"): path.setLen(path.len - " (deleted)".len)
+  discard execv(path.cstring, argv)
   discard execv("/proc/self/exe", argv)
   stderr.writeLine "error: re-exec failed: ", strerror(errno)
   deallocCStringArray(argv)
