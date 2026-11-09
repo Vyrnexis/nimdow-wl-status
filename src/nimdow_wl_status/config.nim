@@ -86,22 +86,10 @@ proc loadConfig*(text, path: string): Loaded =
     else: barSides = Styles[bar["style"].stringVal.toLowerAscii]
   let barFg = if "text_colour" in bar and bar["text_colour"].kind == TomlValueKind.String: bar["text_colour"].stringVal else: ""
 
-  # colours: theme files first, then the user's [colours]
   var raw: Table[string, string]
-  proc addColours(t: TomlTableRef, origin: string) =
-    for k, v in t:
-      if v.kind == TomlValueKind.String: raw[k.toLowerAscii] = v.stringVal
-      else: errs.add origin & ": colour '" & k & "' must be a string"
-  if "colour_files" in bar:
-    let files = bar["colour_files"]
-    if not typeOk(files, 'a'): errs.add "[bar] colour_files: expected array of strings"
-    else:
-      for f in files.arrayVal:
-        try:
-          let t = parseString(readFile(dir / f.stringVal)).tableVal
-          if "colours" in t and t["colours"].kind == TomlValueKind.Table: addColours(t["colours"].tableVal, f.stringVal)
-        except CatchableError as e: errs.add "colour file " & f.stringVal & ": " & e.msg
-  addColours(table("colours"), "[colours]")
+  for k, v in table("colours"):
+    if v.kind == TomlValueKind.String: raw[k.toLowerAscii] = v.stringVal
+    else: errs.add "[colours]: colour '" & k & "' must be a string"
   for k, v in raw:
     let hex = resolve(v, raw)
     if hex == "": errs.add "[colours] " & k & ": invalid colour \"" & v & "\""

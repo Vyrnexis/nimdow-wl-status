@@ -34,7 +34,6 @@ src/nimdow_wl_status/
     datetime.nim memory.nim cpu.nim battery.nim net.nim
     command.nim   (command + stream)
 config.default.toml   built-in default (staticRead)
-themes/*.toml         [colours] palettes (gruvbox, nord, dracula, catppuccin, rosepine)
 scripts/*.sh          volume.sh, updates.sh, weather.sh
 ```
 
@@ -71,7 +70,6 @@ built-in default.
 [bar]
 style = "angle_b"              # arrow arrow_l arrow_r circle circle_l circle_r angle_a angle_b none
 text_colour = "#ebdbb2"        # optional
-colour_files = ["themes/gruvbox.toml"]   # optional, relative to config dir; their [colours] load first
 
 [colours]                      # name = "#rrggbb" | other name
 accent = "#689d6a"
@@ -114,4 +112,4 @@ runs. Invalid on reload -> keep running. `--check-config` exits 0/1.
 ## Removed
 
 pulse, archupdates, weather (-> scripts), reconnect checker, alsa, bluetooth, keyboard,
-sensibo, compiled palettes (-> themes/), osproc runners, setpriv dependency.
+sensibo, compiled palettes (colours are plain hex), osproc runners, setpriv dependency.

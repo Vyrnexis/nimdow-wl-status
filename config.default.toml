@@ -19,9 +19,6 @@
 style = "angle_b"
 # Text colour for all segments. Unset: nimdow-wl's barForegroundColor applies.
 # text_colour = "#ebdbb2"
-# Palettes loaded into [colours] first (relative to this file's directory; your own
-# [colours] override them). Shipped: gruvbox nord dracula catppuccin rosepine.
-# colour_files = ["themes/gruvbox.toml"]
 
 # Named colours, usable wherever a colour is accepted (also in script output).
 # [colours]

@@ -32,8 +32,7 @@ Saving the file reloads it; an invalid file is reported on stderr and the runnin
 configuration is kept. At start-up an invalid file falls back to the built-in default.
 
 Segment order = bar order = click region N = signal `SIGRTMIN+N`. Colours are `#rrggbb` or a
-name from `[colours]`; `colour_files` loads palettes from `themes/` (gruvbox, nord, dracula,
-catppuccin, rosepine) first. `text_colour` (per segment or in `[bar]`) sets the foreground;
+name from `[colours]`. `text_colour` (per segment or in `[bar]`) sets the foreground;
 unset, nimdow-wl's `barForegroundColor` applies.
 
 ## Script protocol
