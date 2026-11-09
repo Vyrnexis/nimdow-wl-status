@@ -1,27 +1,16 @@
-###########
-# Imports
-# #########
-import std/[os, monotimes, times, posix, strutils]
-# Core function for nimdow-wl-status
-import core/[segment, events, ipc, signals, reconnect, procs, config, reload]
+## nimdow-wl-status: optional status feeder for nimdow-wl. See README.md and docs/DESIGN.md.
+##   --stdout        print each new status line instead of sending it to nimdow-wl
+##   --config <path> config file (default $XDG_CONFIG_HOME/nimdow-wl/status.toml, else built-in)
+##   --check-config  validate the config, print problems, exit 0 (ok) / 1 (errors)
+## Signals: SIGUSR1 rerun all, SIGRTMIN+N rerun segment N, SIGHUP reload, SIGTERM/SIGINT exit.
+import std/[os, posix, strutils]
+import nimdow_wl_status/[config, loop, child, ipc, reload]
+import nimdow_wl_status/modules/[datetime, memory, cpu, battery, net, command]
 
-# Parameters:
-# --stdout        print each new status as one line on stdout instead of sending it to nimdow-wl
-# --config <path> use this config file (default $XDG_CONFIG_HOME/nimdow-wl/status.toml,
-#                 else the built-in default, see config.default.toml)
-# --check-config  parse and validate the config, print problems, exit 0 (ok) / 1 (errors)
-# Signals:
-# SIGUSR1 refresh everything, SIGRTMIN+N refresh segment N (1-based), SIGHUP reload the config,
-# SIGTERM/SIGINT exit
-
-###################
-# Config
-###################
 var
-  configPath = defaultConfigPath()
-  explicitConfig = false
-  checkOnly = false
-  currentText = ""        # text of the config file this process was started with
+  configPath = getConfigDir() / "nimdow-wl" / "status.toml"
+  explicitConfig, checkOnly = false
+  running = ""                     # text of the config this process runs
 
 block parseArgs:
   let args = commandLineParams()
@@ -33,185 +22,103 @@ block parseArgs:
     elif a == "--config" or a.startsWith("--config="):
       if a == "--config":
         inc i
-        if i >= args.len:
-          stderr.writeLine "--config needs a path"
-          quit(2)
+        if i >= args.len: (stderr.writeLine "--config needs a path"; quit(2))
         configPath = args[i]
-      else:
-        configPath = a["--config=".len .. ^1]
+      else: configPath = a[9 .. ^1]
       explicitConfig = true
     inc i
   configPath = expandTilde(configPath)
 
-proc report(l: Loaded, origin: string) =
-  for w in l.warnings: stderr.writeLine "warning: ", w
-  for e in l.errors: stderr.writeLine "error: ", e
-
 proc readConfig(text: var string): bool =
-  ## False if the file exists but cannot be read.
+  ## False if the file exists but cannot be read. `text` stays "" when there is no file.
   text = ""
-  if not fileExists(configPath): return true
   try:
-    text = readFile(configPath)
+    if fileExists(configPath): text = readFile(configPath)
+    result = true
   except CatchableError as e:
     stderr.writeLine "error: cannot read ", configPath, ": ", e.msg
-    return false
-  true
+
+proc load(text: string): Loaded =
+  ## The file's config, or the built-in default when there is no file.
+  result = loadConfig(if text != "" or fileExists(configPath): text else: DefaultConfig, configPath)
+  for w in result.warnings: stderr.writeLine "warning: ", w
+  for e in result.errors: stderr.writeLine "error: ", e
 
 if checkOnly:
   var text: string
-  var l: Loaded
-  if not readConfig(text):
-    quit(1)
-  if fileExists(configPath):
-    l = parseConfig(text, configPath)
-  elif explicitConfig:
+  if not readConfig(text): quit(1)
+  if text == "" and explicitConfig and not fileExists(configPath):
     stderr.writeLine "error: config file not found: ", configPath
     quit(1)
-  else:
-    echo "no config file at ", configPath, "; the built-in default would be used"
-    l = builtinDefault()
-  l.report(configPath)
+  let l = load(text)
   if l.errors.len > 0:
     stderr.writeLine configPath, ": ", l.errors.len, " error(s)"
     quit(1)
-  echo configPath, ": ok (", l.segments.len, " segments, ", l.warnings.len, " warning(s))"
+  echo configPath, ": ok (", l.cfg.segs.len, " segments, ", l.warnings.len, " warning(s))"
   quit(0)
 
-proc startupConfig(): seq[Segment] =
-  var text: string
-  var l: Loaded
-  var haveFile = readConfig(text) and fileExists(configPath)
-  if haveFile:
-    l = parseConfig(text, configPath)
-    l.report(configPath)
-    currentText = text
-    if l.errors.len > 0:
-      stderr.writeLine "error: invalid config ", configPath, ", using the built-in default"
-      l = builtinDefault()
-  else:
-    if explicitConfig:
-      stderr.writeLine "warning: config file not found: ", configPath, ", using the built-in default"
-    l = builtinDefault()
-  l.segments
+var segs: seq[Seg]
 
-let
-  ###################
-  # Status Bar setup
-  ###################
-  ## The segment list comes from the config file (see config.default.toml).
-  segments = startupConfig()
-
-###################
-# Event loop
-# #################
-var quit = false
-
-proc reexec() =
-  ## Replace this process with a fresh copy of itself (same argv) to pick up a new config.
-  killChildren()   # includes `pactl subscribe`, which would otherwise outlive the exec
-  # Mark every inherited fd close-on-exec (selector, inotify, self-pipe, child pipes);
-  # not closed, so we keep working if exec fails.
-  var fds: seq[cint]
-  for kind, p in walkDir("/proc/self/fd"):
-    try: fds.add cint(parseInt(p.extractFilename))
-    except ValueError: discard
-  for fd in fds:
-    if fd > 2: discard fcntl(fd, F_SETFD, FD_CLOEXEC)
-  let argv = allocCStringArray(@[paramStr(0)] & commandLineParams())
-  # Exec the real path, not /proc/self/exe: the process name (comm) is taken from the
-  # exec'd path, and "exe" would break `pkill nimdow-wl-stat`. If the binary was
-  # replaced on disk (rebuild), readlink ends in " (deleted)": run the new one.
-  var path = getAppFilename()
-  if path.endsWith(" (deleted)"): path.setLen(path.len - " (deleted)".len)
-  discard execv(path.cstring, argv)
-  discard execv("/proc/self/exe", argv)
-  stderr.writeLine "error: re-exec failed: ", strerror(errno)
-  deallocCStringArray(argv)
+proc start(cfg: Config) =
+  palette = cfg.colours
+  for c in cfg.segs:
+    let s = Seg(cfg: c, icon: c.icon, bg: c.bg)
+    case c.module
+    of "datetime": datetime.init(s)
+    of "memory": memory.init(s)
+    of "cpu": cpu.init(s)
+    of "battery": battery.init(s)
+    of "net": net.init(s)
+    of "command": initCommand(s, cfg.dir)
+    else: initStream(s, cfg.dir)
+    s.setBody("")                  # show_always segments show their icon at once
+    segs.add s
+  for s in segs: runSeg(s)
 
 proc tryReload(force: bool) =
-  ## Validate the config on disk first; only a valid one restarts the process.
+  ## Only a valid config restarts the process.
   var text: string
-  if not readConfig(text): return
-  if not force and text == currentText: return   # unchanged (duplicate events, touch)
-  let exists = fileExists(configPath)
-  let l = if exists: parseConfig(text, configPath) else: builtinDefault()
-  l.report(configPath)
-  if l.errors.len > 0:
+  if not readConfig(text) or (not force and text == running): return
+  if load(text).errors.len > 0:
     stderr.writeLine "error: config ", configPath, " is invalid, keeping the current configuration"
     return
   stderr.writeLine "config changed, reloading"
   reexec()
 
-proc barText(): string =
-  for s in segments:
-    result &= s.text
-
 proc flush(force = false) =
-  if barDirty or force:
-    barDirty = false
-    sendStatus(barText(), force)
+  if dirty or force:
+    dirty = false
+    var bar: string
+    for s in segs: bar &= s.text
+    sendStatus(bar, force)
 
-proc refreshAll() =
-  for s in segments:
-    s.refreshNow()
-    s.reschedule()
-
-for i, s in segments:
-  s.index = i + 1
-
-var sigs = @[SIGUSR1, SIGTERM, SIGINT, SIGHUP]
-for i in 1 .. segments.len:
-  if sigRtMin() + cint(i) <= 64: sigs.add sigRtMin() + cint(i)  # 64 = SIGRTMAX on Linux
-installSignals(sigs, proc(sig: cint) =
-  if sig == SIGTERM or sig == SIGINT:
-    quit = true
-  elif sig == SIGHUP:
-    tryReload(force = true)
-  elif sig == SIGUSR1:
-    refreshAll()
-    flush(force = true)
+block startup:
+  var text: string
+  var l: Loaded
+  if readConfig(text) and text != "":
+    l = load(text)
+    running = text
+    if l.errors.len > 0:
+      stderr.writeLine "error: invalid config ", configPath, ", using the built-in default"
+      l = loadConfig(DefaultConfig, configPath)
   else:
-    let i = int(sig - sigRtMin())
-    if i >= 1 and i <= segments.len:
-      segments[i - 1].refreshNow()
-      segments[i - 1].reschedule()
-      flush())
+    if explicitConfig: stderr.writeLine "warning: config file not found: ", configPath, ", using the built-in default"
+    l = load("")
+  var sigs = @[SIGUSR1, SIGTERM, SIGINT, SIGHUP]
+  for i in 1 .. min(l.cfg.segs.len, 64 - sigRtMin().int): sigs.add sigRtMin() + cint(i)
+  watchSignals(sigs, proc(sig: cint) =
+    if sig == SIGTERM or sig == SIGINT: stop()
+    elif sig == SIGHUP: tryReload(force = true)
+    elif sig == SIGUSR1:
+      for s in segs: runSeg(s)
+      flush(force = true)
+    else:
+      let i = int(sig - sigRtMin())
+      if i >= 1 and i <= segs.len: runSeg(segs[i - 1]))
+  watchConfig(configPath, proc() = tryReload(force = false))
+  onIdle = proc() = flush()
+  start(l.cfg)
+  flush(force = true)
 
-discard watchConfigFile(configPath, proc() = tryReload(force = false))
-
-initConnectChecker(proc() =
-  refreshAll()
-  flush())
-
-for s in segments:
-  s.startSegment()
-  s.reschedule()
-flush(force = true)
-
-while not quit:
-  # sleep until the earliest segment or timer is due; no fixed tick
-  var hasDue = false
-  var due: MonoTime
-  for s in segments:
-    if s.hasDue and (not hasDue or s.nextDue < due):
-      hasDue = true
-      due = s.nextDue
-  let (hasTimer, timerDue) = earliestTimer()
-  if hasTimer and (not hasDue or timerDue < due):
-    hasDue = true
-    due = timerDue
-  var timeout = -1
-  if hasDue:
-    let ns = (due - getMonoTime()).inNanoseconds
-    timeout = if ns <= 0: 0 else: int((ns + 999_999) div 1_000_000)
-  pollFds(timeout)
-  runTimers()
-  let now = getMonoTime()
-  for s in segments:
-    if s.hasDue and s.nextDue <= now:
-      s.refreshNow()
-      s.reschedule()
-  flush()
-
-killChildren()
+run()
+killAll()

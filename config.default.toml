@@ -5,111 +5,96 @@
 #   $XDG_CONFIG_HOME/nimdow-wl/status.toml   (default ~/.config/nimdow-wl/status.toml)
 #   built-in default (this file, embedded at compile time)
 #
-# The file is reloaded automatically when it changes (and on SIGHUP). An invalid
-# file is reported on stderr and the running configuration is kept.
-# Check a file without running:  nimdow-wl-status --check-config [--config <path>]
+# The file reloads when it changes (and on SIGHUP). An invalid file is reported on stderr
+# and the running configuration is kept. Check one with:
+#   nimdow-wl-status --check-config [--config <path>]
 #
-# ORDER MATTERS: the order of the [[segment]] tables is the bar order, the
-# nimdow-wl click region number (1-based, left to right) and the signal number
-# for refreshing it (SIGRTMIN+N, e.g. `pkill -RTMIN+4 nimdow-wl-stat`).
+# ORDER MATTERS: [[segment]] order = bar order = click region N = signal SIGRTMIN+N
+# (e.g. `pkill -RTMIN+3 nimdow-wl-stat`). SIGUSR1 reruns every segment.
 #
-# Colours are accepted as:
-#   "#rrggbb"            hex
-#   "<palette>.<name>"   gruvbox, nord, dracula, catppuccin, rosepine (case-insensitive),
-#                        e.g. "gruvbox.aqua", "nord.nord8", "catppuccin.Mauve"
-#   "<name>"             a name defined in [colours] below
-# "color" is accepted everywhere as an alias of "colour".
+# A colour is "#rrggbb" or a name from [colours]. "color" is an alias of "colour".
 
 [bar]
-# Default segment shape for all segments. One of:
-#   arrow, arrow_l, arrow_r, circle, circle_l, circle_r, angle_a, angle_b, none
+# Default segment shape: arrow arrow_l arrow_r circle circle_l circle_r angle_a angle_b none
 style = "angle_b"
+# Text colour for all segments. Unset: nimdow-wl's barForegroundColor applies.
+# text_colour = "#ebdbb2"
+# Palettes loaded into [colours] first (relative to this file's directory; your own
+# [colours] override them). Shipped: gruvbox nord dracula catppuccin rosepine.
+# colour_files = ["themes/gruvbox.toml"]
 
-# Optional named colours, usable anywhere a colour is accepted.
+# Named colours, usable wherever a colour is accepted (also in script output).
 # [colours]
 # accent = "#689d6a"
-# warn   = "gruvbox.red1"
 
 # Keys common to every segment:
-#   module       (required) archupdates | weather | memory | pulse | battery | wifi | datetime | command
+#   module       (required) datetime memory cpu battery net command stream
 #   icon         text shown before the body (default "")
 #   colour       background colour (default "#282828")
-#   style        overrides [bar] style for this segment
-#   interval     seconds between refreshes (number, fractions allowed); 0 = never (event driven).
-#                Omitted = the module's default (shown below)
+#   text_colour  foreground colour (default: [bar] text_colour)
+#   style        overrides [bar] style
+#   interval     seconds between refreshes, fractions ok; 0 = only on signal
+#                (default per module, shown below)
 #   show_always  show the segment even when its body is empty (default false)
-# Module-specific options are documented at each module.
-# archupdates, pulse and wifi may appear only once (a duplicate is skipped with a warning).
-
-# Pending pacman updates (needs `checkupdates`). Shows UPDATING while pacman holds its lock.
-[[segment]]
-module = "archupdates"           # default interval: 600
-icon = " "
-colour = "gruvbox.aqua"
-show_always = true
-interval = 600
-# colour_busy   = "#fb4934"      # colour while pacman is running (default "#fb4934")
-# updating_text = "UPDATING"     # body while pacman is running
-# timeout       = 60             # seconds before checkupdates is killed
-
-# Temperature from wttr.in (needs `curl`).
-[[segment]]
-module = "weather"               # default interval: 600
-icon = " "
-colour = "gruvbox.blue"
-interval = 600
-# location = "Perth"             # wttr.in location
-# format   = "%t"                # wttr.in format string, e.g. "%c+%t"
-# retry    = 60                  # seconds before retrying after a failed request
 
 # Used memory.
 [[segment]]
-module = "memory"                # default interval: 2
-icon = " "
-colour = "gruvbox.purple"
-interval = 2
+module = "memory"                # interval default: 2
+icon = "󰍛 "
+colour = "#b16286"
 # method   = "htop"              # "htop" (htop's formula) or "available" (MemTotal - MemAvailable)
-# decimals = 2                   # decimals shown for GiB values
+# decimals = 2                   # decimals for GiB values
 
-# Default sink volume, follows `pactl subscribe` (needs `pactl`).
+# CPU usage over the interval, from /proc/stat.
 [[segment]]
-module = "pulse"                 # default interval: 0 (event driven)
-colour = "gruvbox.orange"
-# icon_volume = " "
-# icon_mute   = "󰖁 "
+module = "cpu"                   # interval default: 2
+icon = " "
+colour = "#458588"
+# decimals = 0
 
-# Laptop battery.
+# Laptop battery; shows N/A when there is none.
 [[segment]]
-module = "battery"               # default interval: 5
-colour = "gruvbox.green"
-# icons = [" ", " ", " ", " ", " ", " "]   # charging, empty, low, half, 3qtr, full (exactly 6)
-# name  = "BAT0"                 # /sys/class/power_supply/<name>; default = first battery found
+module = "battery"               # interval default: 5
+colour = "#98971a"
+# icons = [" ", "󰂎 ", "󱊡 ", "󱊢 ", "󱊢 ", "󱊣 "]   # charging, empty, low, half, 3qtr, full (exactly 6)
+# name  = "BAT0"                 # default: first battery found
 
-# Network link (wifi SSID / ethernet / disconnected). Needs `nmcli` for the SSID.
+# Network link: wifi / ethernet / disconnected icon. Reads sysfs; only the SSID uses `nmcli`.
 [[segment]]
-module = "wifi"                  # default interval: 5
-colour = "gruvbox.bg2"
+module = "net"                   # interval default: 5
+colour = "#504945"
 show_always = true
-interval = 5
-# icon_wifi         = " "
-# icon_ethernet     = "󰈀"
-# icon_disconnected = " "
-# show_ssid         = true
+# icon_wifi         = " "
+# icon_ethernet     = "󰈀"
+# icon_disconnected = " "
+# show_ssid         = true       # needs nmcli; false = icon only
 
-# Date and time using Nim's `times` format. Aligned to the minute, or to the second
-# when the format contains seconds ("s"). An explicit interval overrides the alignment.
+# Date and time, Nim `times` format. Aligned to the minute (to the second if the format
+# has an "s"); an explicit interval overrides that.
 [[segment]]
 module = "datetime"
-icon = " "
-colour = "gruvbox.yellow"
+icon = " "
+colour = "#d79921"
 # format = "ddd d MMM HH:mm "
 
-# Your own script: run through `sh -c` every `interval` seconds; the body is the
-# first line of stdout, stripped. Any number of command segments may be used.
+# Your own scripts. Each stdout line is `text` or `text<TAB>colour`; the colour holds until
+# the next line. Commands run via `sh -c` in this file's directory.
+#
+# command: run every `interval`; the first output line is the body; a non-zero exit shows
+# N/A (or hides the segment with hide_on_error).
 # [[segment]]
-# module = "command"             # default interval: 60
-# icon = " "
-# colour = "nord.nord8"
-# command = "uptime -p | sed 's/^up //'"
-# timeout = 10                   # seconds before the command is killed
-# hide_on_error = false          # true: empty body on non-zero exit instead of "N/A"
+# module = "command"             # interval default: 60
+# command = "scripts/updates.sh" # scripts/weather.sh [location] is the same kind
+# icon = " "
+# colour = "#689d6a"
+# interval = 600
+# timeout = 10                   # seconds before it is killed
+# hide_on_error = false
+# show_always = true
+#
+# stream: one long-running process, every line replaces the body. If it exits it restarts
+# (0.5s doubling to 30s). Needs pactl.
+# [[segment]]
+# module = "stream"
+# command = "scripts/volume.sh"
+# colour = "#d65d0e"
