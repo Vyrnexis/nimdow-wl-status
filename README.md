@@ -40,7 +40,7 @@ You need [Nim](https://nim-lang.org) 2.0 or newer and the `parsetoml` package. n
 already uses `parsetoml`, so you probably have it.
 
 ```sh
-git clone <this repo> nimdow-wl-status
+git clone https://github.com/Vyrnexis/nimdow-wl-status.git
 cd nimdow-wl-status
 nimble install parsetoml          # skip if already installed
 nimble build -d:release           # produces ./nimdow-wl-status
