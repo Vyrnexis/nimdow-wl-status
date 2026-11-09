@@ -16,4 +16,4 @@ proc init*(s: Seg) =
     let usage = if dt > 0: 100.0 * (dt - (idle - prevIdle)).float / dt.float else: 0.0
     prevTotal = total
     prevIdle = idle
-    s.setBody(formatFloat(usage, ffDecimal, decimals) & "%")
+    s.setBody(formatFloat(usage, ffDecimal, decimals).strip(leading = false, chars = {'.'}) & "%")

@@ -13,5 +13,5 @@ proc init*(s: Seg) =
     let used =
       if useAvailable: m["MemTotal"] - m["MemAvailable"]
       else: m["MemTotal"] - (m["MemFree"] + m["Buffers"] + m["Cached"]) + (m["Shmem"] - m["SReclaimable"])
-    s.setBody(if used >= 1048576: formatFloat(used.float / (1024.0 * 1024.0), ffDecimal, decimals) & " GiB"
+    s.setBody(if used >= 1048576: formatFloat(used.float / (1024.0 * 1024.0), ffDecimal, decimals).strip(leading = false, chars = {'.'}) & " GiB"
               else: $(used div 1024) & " MiB")
