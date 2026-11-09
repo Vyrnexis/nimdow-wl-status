@@ -1,0 +1,5 @@
+/src/
+/pkg/
+/nimdow-wl-status/
+*.tar.gz
+*.pkg.tar.*
