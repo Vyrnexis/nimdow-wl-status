@@ -1,6 +1,8 @@
 ## nimdow-wl-status: optional status feeder for nimdow-wl. See README.md and docs/DESIGN.md.
 ##   --stdout        print each new status line instead of sending it to nimdow-wl
-##   --config <path> config file (default $XDG_CONFIG_HOME/nimdow-wl/status.toml, else built-in)
+##   --config <path> config file (default $XDG_CONFIG_HOME/nimdow-wl/status.toml, else the first
+##                   nimdow-wl/status.toml in $XDG_CONFIG_DIRS (default /etc/xdg), copied to the
+##                   user path on first run, else the built-in default)
 ##   --check-config  validate the config, print problems, exit 0 (ok) / 1 (errors)
 ## Signals: SIGUSR1 rerun all, SIGRTMIN+N rerun segment N, SIGHUP reload, SIGTERM/SIGINT exit.
 import std/[os, posix, strutils]
@@ -28,6 +30,34 @@ block parseArgs:
       explicitConfig = true
     inc i
   configPath = expandTilde(configPath)
+
+proc systemConfig(): string =
+  ## First nimdow-wl/status.toml in $XDG_CONFIG_DIRS (default /etc/xdg), or "".
+  var dirs = getEnv("XDG_CONFIG_DIRS")
+  if dirs == "": dirs = "/etc/xdg"
+  for d in dirs.split(':'):
+    if d == "": continue
+    let f = d / "nimdow-wl" / "status.toml"
+    if fileExists(f): return f
+
+block firstRun:
+  ## No --config and no user file: use the system-wide config (installed by the desktop
+  ## package). It is copied to the user path (never overwriting) unless only checking; if the
+  ## copy fails the system file is used as is. With no system file the built-in default is used
+  ## and nothing is written.
+  if explicitConfig or fileExists(configPath): break firstRun
+  let sys = systemConfig()
+  if sys == "": break firstRun
+  if checkOnly:
+    configPath = sys
+    break firstRun
+  try:
+    createDir(parentDir(configPath))
+    copyFile(sys, configPath)
+    stderr.writeLine "copied ", sys, " to ", configPath
+  except CatchableError as e:
+    stderr.writeLine "warning: cannot copy ", sys, " to ", configPath, ": ", e.msg, ", using ", sys
+    configPath = sys
 
 proc readConfig(text: var string): bool =
   ## False if the file exists but cannot be read. `text` stays "" when there is no file.

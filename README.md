@@ -72,7 +72,18 @@ Log out and back in, or just run `nimdow-wl-status &` from a terminal inside nim
 
 ## Your first config
 
-With no config file it shows a sensible default bar. To customise it, copy the default into place:
+nimdow-wl-status looks for its config in this order:
+
+1. `--config <file>`, if given
+2. `${XDG_CONFIG_HOME:-~/.config}/nimdow-wl/status.toml`
+3. the first `nimdow-wl/status.toml` in `${XDG_CONFIG_DIRS:-/etc/xdg}` (installed by `nimdow-wl-desktop-git`)
+4. the built-in default (`config.default.toml`)
+
+If you gave no `--config` and the user file does not exist, the file from step 3 is copied to the user path on
+first run (an existing file is never overwritten; if the copy fails the system file is used as is). With no system
+file the built-in default is used and nothing is written.
+
+With no config file you get a sensible default bar. To customise it, copy the default into place:
 
 ```sh
 mkdir -p ~/.config/nimdow-wl
@@ -286,7 +297,7 @@ Ready-made scripts in `scripts/`. Copy them to `~/.config/nimdow-wl/scripts/` an
 |---|---|---|---|
 | `volume.sh` | `stream` | `" 45%"`, or the mute icon when muted | `[volume icon] [mute icon]` |
 | `updates.sh` | `command` | `Updates: 3`, `0`, or `UPDATING` while pacman runs | `[colour while updating]` |
-| `weather.sh` | `command` | `+20°C` from wttr.in | `[city]` (default Perth) |
+| `weather.sh` | `command` | `+20°C` from wttr.in | `[city]` (default: your location, found by IP) |
 
 ```toml
 [[segment]]
