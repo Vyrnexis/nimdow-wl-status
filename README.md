@@ -73,6 +73,9 @@ exec = [
 
 Log out and back in, or just run `nimdow-wl-status &` from a terminal inside nimdow-wl.
 
+Only one runs per user: starting it stops an older one (for example one left over from a
+previous login). `--stdout` instances are separate and never stop it.
+
 ## Your first config
 
 nimdow-wl-status looks for its config in this order:

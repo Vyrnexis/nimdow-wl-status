@@ -96,6 +96,25 @@ if checkOnly:
   echo configPath, ": ok (", l.cfg.segs.len, " segments, ", l.warnings.len, " warning(s))"
   quit(0)
 
+proc replaceOlder() =
+  ## One feeder per user: stop an older one (e.g. left over from a previous login, as
+  ## it is no Wayland client and outlives the session) and record our pid.
+  let rt = getEnv("XDG_RUNTIME_DIR")
+  let pidFile = if rt != "": rt / "nimdow-wl-status.pid" else: "/tmp/nimdow-wl-status-" & $getuid() & ".pid"
+  let old = try: parseInt(readFile(pidFile).strip) except CatchableError: 0
+  if old > 0 and old != getpid().int and
+      (try: readFile("/proc/" & $old & "/comm").strip == "nimdow-wl-statu" except CatchableError: false):
+    if kill(Pid(old), SIGTERM) == 0:
+      var alive = true
+      for _ in 1 .. 50:                # up to 1 s, then force
+        if kill(Pid(old), 0) != 0: (alive = false; break)
+        sleep 20
+      if alive: discard kill(Pid(old), SIGKILL)
+  try: writeFile(pidFile, $getpid())
+  except CatchableError as e: stderr.writeLine "warning: cannot write ", pidFile, ": ", e.msg
+
+if not useStdout: replaceOlder()
+
 var segs: seq[Seg]
 
 proc start(cfg: Config) =
