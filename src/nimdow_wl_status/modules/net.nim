@@ -20,11 +20,14 @@ proc init*(s: Seg) =
 
   proc query() =
     lastQuery = getMonoTime()
+    let asked = link
     var found = ""
-    discard spawn("nmcli -t -f ACTIVE,SSID device wifi", "", false, 10_000,
+    # --rescan no: read NetworkManager's list, never trigger a scan
+    discard spawn("nmcli -t -f ACTIVE,SSID device wifi list --rescan no", "", false, 10_000,
       proc(line: string) =
         if line.startsWith("yes:"): found = line[4 .. ^1].replace("\\:", ":").replace("\\\\", "\\"),
       proc(code: int) =
+        if link != asked: return        # the link changed meanwhile: a newer answer is coming
         ssid = if code == 0: found else: ""
         show())
 

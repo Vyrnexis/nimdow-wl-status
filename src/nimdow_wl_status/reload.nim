@@ -3,30 +3,38 @@ import std/[os, posix, inotify, strutils, tables]
 import loop, child
 
 proc watchConfig*(path: string, onChange: proc() {.closure.}) =
-  ## Calls onChange (debounced) when `path` is written, created or renamed into place.
+  ## Calls onChange (debounced) when `path` is written, created or renamed into place. If
+  ## its directory does not exist yet, the parent is watched until the directory appears.
   let fd = inotify_init1(O_NONBLOCK or O_CLOEXEC)
-  if fd < 0: return
-  var names: Table[cint, string]            # watch descriptor -> file name to react to
+  if fd < 0:
+    stderr.writeLine "warning: inotify unavailable, config changes need SIGHUP"
+    return
+  var names: Table[cint, string]            # watch descriptor -> name to react to
   var paths = @[absolutePath(path)]
   try:                                      # symlinked config: edits land in the target's dir
     if symlinkExists(paths[0]): paths.add expandFilename(paths[0])
   except CatchableError: discard
-  for p in paths:
-    let wd = inotify_add_watch(fd, cstring(parentDir(p)), uint32(IN_CLOSE_WRITE or IN_MOVED_TO or IN_CREATE or IN_DELETE))
-    if wd >= 0: names[wd] = extractFilename(p)
+  proc add(p: string) =
+    let dir = parentDir(p)
+    var wd = inotify_add_watch(fd, cstring(dir), uint32(IN_CLOSE_WRITE or IN_MOVED_TO or IN_CREATE or IN_DELETE))
+    if wd >= 0: (names[wd] = extractFilename(p); return)
+    # No such directory: wait for it in its parent.
+    wd = inotify_add_watch(fd, cstring(parentDir(dir)), uint32(IN_CREATE or IN_MOVED_TO))
+    if wd >= 0: names[wd] = "/" & extractFilename(dir)    # "/": a directory to enter
+    else: stderr.writeLine "warning: cannot watch ", dir, " for config changes: ", strerror(errno)
+  for p in paths: add p
   var debounce: Deadline
   watch(fd, proc() =
-    var buf: array[4096, byte]
     var hit = false
-    while true:
-      let n = read(fd, addr buf[0], buf.len)
-      if n <= 0: break
-      var off = 0
-      while off + sizeof(InotifyEvent) <= n:
-        let ev = cast[ptr InotifyEvent](addr buf[off])
-        let name = if ev.len > 0: $cast[cstring](addr buf[off + sizeof(InotifyEvent)]) else: ""
-        if ev.wd in names and name == names[ev.wd]: hit = true
-        off += sizeof(InotifyEvent) + ev.len.int
+    readEvents(fd, proc(wd: cint, mask: uint32, name: string) =
+      if wd notin names or name == "": return
+      if names[wd][0] == '/':
+        if name == names[wd][1 .. ^1]:       # the directory appeared: watch it, check the file
+          names.del wd
+          discard inotify_rm_watch(fd, wd)
+          for p in paths: add p
+          hit = true
+      elif name == names[wd]: hit = true)
     if hit:
       cancel(debounce)
       debounce = after(200, onChange))

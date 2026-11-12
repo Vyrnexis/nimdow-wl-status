@@ -14,7 +14,7 @@ changes show up the moment you save it. You never need to recompile.
 
 - **Light:** it sleeps until something actually needs updating. There is no constant polling loop.
 - **No extra processes:** the built-in modules read straight from the kernel, so nothing is started every few seconds.
-- **Direct:** it talks to nimdow-wl's socket itself and only sends when the text changes.
+- **Direct:** it talks to nimdow-wl's socket itself, only sends when the text changes, and resends when nimdow-wl restarts.
 - **Hard to break:** a typo in your config never takes the bar down.
 
 ---
@@ -47,6 +47,9 @@ nimble build -d:release           # produces ./nimdow-wl-status
 ```
 
 Put the binary somewhere on your `PATH`, for example `~/.local/bin/`.
+
+On Arch, install the AUR package `nimdow-wl-status-git` instead; it puts the default config and the
+scripts in `/usr/share/nimdow-wl-status/`.
 
 Optional tools, only needed by the features that use them:
 
@@ -81,7 +84,8 @@ nimdow-wl-status looks for its config in this order:
 
 If you gave no `--config` and the user file does not exist, the file from step 3 is copied to the user path on
 first run (an existing file is never overwritten; if the copy fails the system file is used as is). With no system
-file the built-in default is used and nothing is written.
+file the built-in default is used and nothing is written. An existing but empty file counts as no file: the built-in
+default runs.
 
 With no config file you get a sensible default bar. To customise it, copy the default into place:
 
@@ -119,7 +123,7 @@ colour = "accent"
 format = "ddd d MMM HH:mm "
 ```
 
-That gives you three segments, `memory`, `battery` and `date`, from left to right.
+That gives you three segments, `memory`, `battery` and `datetime`, from left to right.
 
 ## How the config works
 
@@ -166,8 +170,11 @@ Keys every segment accepts:
 | `interval` | Seconds between updates; decimals are OK, `0` means never on its own | per module |
 | `show_always` | Show the segment even when it has nothing to say | `false` |
 
+A hidden segment (nothing to say, no `show_always`) still keeps its number, so click regions and
+`SIGRTMIN+N` signals never shift when a segment appears or disappears.
+
 **Tip:** run `nimdow-wl-status --check-config` after editing. It lists any mistakes with the
-segment number and key, for example `segment 3 (memory): key 'decimals': expected integer`.
+segment number and key, for example `segment 3 (memory): key 'decimals': wrong type or value`.
 
 ## Built-in modules
 
@@ -186,7 +193,7 @@ format = "ddd d MMM HH:mm "     # → "Mon 9 Nov 16:30 "
 The format uses [Nim's time format](https://nim-lang.org/docs/times.html#parsing-and-formatting-dates).
 Common pieces: `HH:mm` is 24-hour time, `h:mm tt` is 12-hour time, `ddd` is Mon, `d MMM` is
 9 Nov, and `yyyy-MM-dd` is 2026-11-09. It updates exactly on the minute, or every second if
-the format includes seconds (`ss`).
+the format includes seconds (`ss`). The clock is right straight after a suspend and after the system time is set; a timezone change shows at the next tick.
 
 ### `memory`
 
@@ -220,8 +227,9 @@ icons = [" ", "󰂎 ", "󱊡 ", "󱊢 ", "󱊢 ", "󱊣 "]   # charging, empty, 
 name = "BAT0"        # optional; the first battery found is used by default
 ```
 
-The `icons` list must contain exactly 6 entries, in the order shown. A desktop with no
-battery shows `N/A`, so leave this segment out there. It updates every 5 seconds by default.
+The `icons` list must contain exactly 6 entries, in the order shown. With no battery the
+segment is hidden and not polled again, so the same config works on a desktop. When several
+batteries match, the first by name (`BAT0`) is used. It updates every 30 seconds by default.
 
 ### `net`
 
@@ -236,7 +244,8 @@ show_ssid = true     # show the wifi name next to the icon (needs nmcli)
 ```
 
 Shows whether you're on wifi, on ethernet, or offline. The wifi name is looked up only when
-the connection changes, so it costs nothing the rest of the time. With `show_ssid = false`
+the connection changes (and every 2 minutes), from NetworkManager's cached list: it never
+triggers a wifi scan. With `show_ssid = false`
 it shows the icon only and never runs `nmcli`. It updates every 5 seconds by default.
 
 ## Your own scripts
@@ -256,7 +265,7 @@ timeout = 10           # kill it if it takes longer; default 10
 hide_on_error = false  # true: hide the segment instead of showing N/A when it fails
 ```
 
-The **first line** the command prints is shown. If the command fails (non-zero exit) or
+The **first line** the command prints is shown (see [what is kept](#text-from-scripts)). If the command fails (non-zero exit) or
 times out, the segment shows `N/A`.
 
 ### `stream`: a script that keeps running
@@ -281,6 +290,13 @@ printf 'Low!\talert\n'            # a name from [colours] works too
 echo "All good"                   # no tab: back to the segment's normal colour
 ```
 
+### Text from scripts
+
+Anything that does not come from this program's own settings (script output, the wifi name) is
+cleaned before it reaches the bar: control bytes (below `0x20`, and `0x7f`) are dropped, which
+removes escape sequences and the `0x1F` byte that separates segments, so a script can never
+add colours or click regions. The text is cut at 256 bytes (on a character boundary).
+
 ### Good to know
 
 - Commands run with `sh -c`, so pipes, `~` and `$VARS` work.
@@ -295,9 +311,11 @@ Ready-made scripts in `scripts/`. Copy them to `~/.config/nimdow-wl/scripts/` an
 
 | Script | Kind | Shows | Arguments |
 |---|---|---|---|
-| `volume.sh` | `stream` | `" 45%"`, or the mute icon when muted | `[volume icon] [mute icon]` |
+| `volume.sh` | `stream` | `" 45%"`, or the mute icon when muted (bursts of events are coalesced) | `[volume icon] [mute icon]` |
 | `updates.sh` | `command` | `Updates: 3`, `0`, or `UPDATING` while pacman runs | `[colour while updating]` |
 | `weather.sh` | `command` | `+20°C` from wttr.in | `[city]` (default: your location, found by IP) |
+
+Without its tool (`pactl`, `checkupdates`, `curl`) a script prints nothing and its segment stays hidden.
 
 ```toml
 [[segment]]
@@ -367,9 +385,10 @@ For example, to update the updates segment right after an upgrade, run
 | The bar shows the default instead of my config | The config had errors at startup. Run `--check-config` to see them. |
 | Icons show as boxes | Use a [Nerd Font](https://www.nerdfonts.com) as your nimdow-wl bar font. |
 | A script segment shows `N/A` | The command failed or timed out. Run it in a terminal to see why, or raise `timeout`. |
-| Battery shows `N/A` | No battery was found. Remove the segment, or set `name` (see `ls /sys/class/power_supply`). |
+| The battery segment is missing | No battery was found, so it is hidden. Set `name` if yours has an unusual one (see `ls /sys/class/power_supply`). |
 | I want to see what it sends | Run `nimdow-wl-status --stdout` in a terminal; it prints each update as a line. |
-| Clicks hit the wrong segment | `clickRegion` numbers follow the segment order in `status.toml`; update them after reordering. |
+| Clicks hit the wrong segment | `clickRegion` numbers follow the segment order in `status.toml` (hidden segments count); update them after reordering. |
+| The bar is empty after restarting nimdow-wl | It resends the status as soon as the new socket appears. If it does not, check that `nimdow-wl-stat` still runs. |
 
 ### Command-line options
 
@@ -378,7 +397,10 @@ nimdow-wl-status                    run and feed the nimdow-wl bar
 nimdow-wl-status --stdout           print updates to the terminal instead
 nimdow-wl-status --config <file>    use a different config file
 nimdow-wl-status --check-config     check the config, report problems, and exit
+nimdow-wl-status -h, --help         show this usage
 ```
+
+An unknown option prints the usage and exits with status 2.
 
 ---
 

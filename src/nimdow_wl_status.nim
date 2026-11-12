@@ -4,10 +4,17 @@
 ##                   nimdow-wl/status.toml in $XDG_CONFIG_DIRS (default /etc/xdg), copied to the
 ##                   user path on first run, else the built-in default)
 ##   --check-config  validate the config, print problems, exit 0 (ok) / 1 (errors)
+##   -h, --help      print this usage
 ## Signals: SIGUSR1 rerun all, SIGRTMIN+N rerun segment N, SIGHUP reload, SIGTERM/SIGINT exit.
 import std/[os, posix, strutils]
 import nimdow_wl_status/[config, loop, child, ipc, reload]
 import nimdow_wl_status/modules/[datetime, memory, cpu, battery, net, command]
+
+const Usage = """usage: nimdow-wl-status [--stdout] [--config <file>] [--check-config] [-h|--help]
+  --stdout          print each new status line instead of sending it to nimdow-wl
+  --config <file>   config file (default ~/.config/nimdow-wl/status.toml)
+  --check-config    validate the config, print problems, exit 0 (ok) / 1 (errors)
+  -h, --help        this help"""
 
 var
   configPath = getConfigDir() / "nimdow-wl" / "status.toml"
@@ -21,6 +28,7 @@ block parseArgs:
     let a = args[i]
     if a == "--stdout": useStdout = true
     elif a == "--check-config": checkOnly = true
+    elif a == "-h" or a == "--help": (echo Usage; quit(0))
     elif a == "--config" or a.startsWith("--config="):
       if a == "--config":
         inc i
@@ -28,6 +36,7 @@ block parseArgs:
         configPath = args[i]
       else: configPath = a[9 .. ^1]
       explicitConfig = true
+    else: (stderr.writeLine("unknown argument: ", a, "\n", Usage); quit(2))
     inc i
   configPath = expandTilde(configPath)
 
@@ -69,15 +78,15 @@ proc readConfig(text: var string): bool =
     stderr.writeLine "error: cannot read ", configPath, ": ", e.msg
 
 proc load(text: string): Loaded =
-  ## The file's config, or the built-in default when there is no file.
-  result = loadConfig(if text != "" or fileExists(configPath): text else: DefaultConfig, configPath)
+  ## The file's config, or the built-in default when there is no file or it is empty.
+  result = loadConfig(if text.strip != "": text else: DefaultConfig, configPath)
   for w in result.warnings: stderr.writeLine "warning: ", w
   for e in result.errors: stderr.writeLine "error: ", e
 
 if checkOnly:
   var text: string
   if not readConfig(text): quit(1)
-  if text == "" and explicitConfig and not fileExists(configPath):
+  if explicitConfig and not fileExists(configPath):
     stderr.writeLine "error: config file not found: ", configPath
     quit(1)
   let l = load(text)
@@ -106,9 +115,9 @@ proc start(cfg: Config) =
   for s in segs: runSeg(s)
 
 proc tryReload(force: bool) =
-  ## Only a valid config restarts the process.
+  ## Only a valid config restarts the process. A deleted or empty file keeps the current one.
   var text: string
-  if not readConfig(text) or (not force and text == running): return
+  if not readConfig(text) or text.strip == "" or (not force and text == running): return
   if load(text).errors.len > 0:
     stderr.writeLine "error: config ", configPath, " is invalid, keeping the current configuration"
     return
@@ -125,7 +134,7 @@ proc flush(force = false) =
 block startup:
   var text: string
   var l: Loaded
-  if readConfig(text) and text != "":
+  if readConfig(text) and text.strip != "":
     l = load(text)
     running = text
     if l.errors.len > 0:
@@ -146,6 +155,10 @@ block startup:
       let i = int(sig - sigRtMin())
       if i >= 1 and i <= segs.len: runSeg(segs[i - 1]))
   watchConfig(configPath, proc() = tryReload(force = false))
+  onClockSet = proc() =
+    for s in segs:
+      if s.align > 0: runSeg(s)
+  if not useStdout: watchWm()
   onIdle = proc() = flush()
   start(l.cfg)
   flush(force = true)

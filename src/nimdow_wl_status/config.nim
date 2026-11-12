@@ -27,7 +27,7 @@ const
     "datetime": (-1.0, "format:s"),
     "memory": (2.0, "method:s decimals:i"),
     "cpu": (2.0, "decimals:i"),
-    "battery": (5.0, "icons:a name:s"),
+    "battery": (30.0, "icons:a name:s"),
     "net": (5.0, "icon_wifi:s icon_ethernet:s icon_disconnected:s show_ssid:b"),
     "command": (60.0, "command:s timeout:n hide_on_error:b"),
     "stream": (0.0, "command:s")}.toTable

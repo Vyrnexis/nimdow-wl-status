@@ -1,6 +1,6 @@
 # Package
 version       = "0.3.0"
-author        = "DrunkenAlcoholic"
+author        = "Vyrnexis"
 description   = "Event-driven status feeder for nimdow-wl"
 license       = "GPL-3.0-or-later"
 srcDir        = "src"

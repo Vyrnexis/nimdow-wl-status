@@ -3,14 +3,18 @@
 # Location (first match wins):
 #   --config <path>
 #   $XDG_CONFIG_HOME/nimdow-wl/status.toml   (default ~/.config/nimdow-wl/status.toml)
+#   the first nimdow-wl/status.toml in $XDG_CONFIG_DIRS (default /etc/xdg), the system config
 #   built-in default (this file, embedded at compile time)
+# Without --config and without a user file, the system config is copied to the user path on
+# first run (never overwriting). A missing or empty file means the built-in default.
 #
 # The file reloads when it changes (and on SIGHUP). An invalid file is reported on stderr
-# and the running configuration is kept. Check one with:
+# and the running configuration is kept, as is a deleted or emptied file. Check one with:
 #   nimdow-wl-status --check-config [--config <path>]
 #
 # ORDER MATTERS: [[segment]] order = bar order = click region N = signal SIGRTMIN+N
-# (e.g. `pkill -RTMIN+3 nimdow-wl-stat`). SIGUSR1 reruns every segment.
+# (e.g. `pkill -RTMIN+3 nimdow-wl-stat`). SIGUSR1 reruns every segment. A hidden segment
+# keeps its number.
 #
 # A colour is "#rrggbb" or a name from [colours]. "color" is an alias of "colour".
 
@@ -49,14 +53,15 @@ icon = " "
 colour = "#458588"
 # decimals = 0
 
-# Laptop battery; shows N/A when there is none.
+# Laptop battery; hidden (and never polled again) when there is none.
 [[segment]]
-module = "battery"               # interval default: 5
+module = "battery"               # interval default: 30
 colour = "#98971a"
 # icons = [" ", "󰂎 ", "󱊡 ", "󱊢 ", "󱊢 ", "󱊣 "]   # charging, empty, low, half, 3qtr, full (exactly 6)
-# name  = "BAT0"                 # default: first battery found
+# name  = "BAT0"                 # default: first battery found (BAT0 before BAT1)
 
-# Network link: wifi / ethernet / disconnected icon. Reads sysfs; only the SSID uses `nmcli`.
+# Network link: wifi / ethernet / disconnected icon. Reads sysfs; only the SSID uses `nmcli`
+# (no wifi scan).
 [[segment]]
 module = "net"                   # interval default: 5
 colour = "#504945"
@@ -75,7 +80,8 @@ colour = "#d79921"
 # format = "ddd d MMM HH:mm "
 
 # Your own scripts. Each stdout line is `text` or `text<TAB>colour`; the colour holds until
-# the next line. Commands run via `sh -c` in this file's directory.
+# the next line. Control bytes (< 0x20, 0x7f: ESC and the 0x1F separator too) are dropped from
+# the text and a body is cut at 256 bytes. Commands run via `sh -c` in this file's directory.
 #
 # command: run every `interval`; the first output line is the body; a non-zero exit shows
 # N/A (or hides the segment with hide_on_error).
